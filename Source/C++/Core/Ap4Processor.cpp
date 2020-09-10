@@ -148,6 +148,7 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
 {
     unsigned int fragment_index = 0;
     AP4_Array<FragmentMapEntry> fragment_map;
+    AP4_UI64 pre_moof_atoms_size = 0;
     
     for (AP4_List<AP4_AtomLocator>::Item* item = atoms.FirstItem();
                                           item;
@@ -163,6 +164,8 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
     
         // if this is not a moof atom, just write it back and continue
         if (atom->GetType() != AP4_ATOM_TYPE_MOOF) {
+            fragment_index--;
+            pre_moof_atoms_size += atom->GetSize();
             result = atom->Write(output);
             if (AP4_FAILED(result)) return result;
             continue;
@@ -364,11 +367,12 @@ AP4_Processor::ProcessFragments(AP4_MoovAtom*              moov,
         // update the sidx if we have one
         if (sidx && fragment_index < sidx->GetReferences().ItemCount()) {
             if (fragment_index == 0) {
-                sidx->SetFirstOffset(moof_out_start-(sidx_position+sidx->GetSize()));
+                sidx->SetFirstOffset(moof_out_start - (sidx_position + sidx->GetSize() + pre_moof_atoms_size));
             }
-            AP4_LargeSize fragment_size = mdat_out_end-moof_out_start;
+            AP4_LargeSize fragment_size = (mdat_out_end - moof_out_start) + pre_moof_atoms_size;
             AP4_SidxAtom::Reference& sidx_ref = sidx->UseReferences()[fragment_index];
             sidx_ref.m_ReferencedSize = (AP4_UI32)fragment_size;
+            pre_moof_atoms_size = 0;
         }
         
         // cleanup
@@ -472,7 +476,7 @@ AP4_Processor::Process(AP4_ByteStream&   input,
             // don't keep the index, it is likely to be invalidated
             delete atom;
             continue;
-        } else if (!fragments && (in_fragments || atom->GetType() == AP4_ATOM_TYPE_MOOF)) {
+        } else if (!fragments && (in_fragments || (atom->GetType() == AP4_ATOM_TYPE_MOOF || atom->GetType() == AP4_ATOM_TYPE_STYP))) {
             in_fragments = true;
             frags.Add(new AP4_AtomLocator(atom, stream_offset));
             continue;
